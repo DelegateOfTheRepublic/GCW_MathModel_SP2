@@ -3,8 +3,10 @@ from enum import StrEnum
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 from scipy import stats
 from outliers import smirnov_grubbs as grubbs
+from prettytable import PrettyTable
 
 
 class Model:
@@ -74,7 +76,7 @@ class Model:
                                                                             if _ != factor_key])}\n')
 
         if len(anomaly_objects) == 0:
-            print('[Внимание!]Аномальные объекты не обнаружены.')
+            print('[Внимание!]Аномальные объекты не обнаружены.\n')
         else:
             print(f'[Внимание!]Аномальные объекты будут удалены автоматически.')
             self.__delete_anomaly_objects(anomaly_objects)
@@ -83,6 +85,7 @@ class Model:
         multicol_pairs: list[list[tuple]] = []
         factors_dep_var: list[str] = []
         corr_matrix: np.ndarray = self.__corr_matrix()
+        self.plot_corr_matrix()
 
         for i in range(len(self.__factors) - 1):
             for j in range(i + 1, len(self.__factors)):
@@ -92,10 +95,10 @@ class Model:
                                            (self.__factors[j], corr_matrix[j, -1])])
                     print(
                         f'[Внимание!]Мультиколлинеарность между факторами {self.__factors[i]} и {self.__factors[j]}.')
-                    print(f'\t[Значение коэффициента корреляции по модулю] {abs(corr_matrix[i, j])}')
+                    print(f'\t[Значение коэффициента корреляции по модулю] {abs(corr_matrix[i, j])}\n')
 
         if len(multicol_pairs) == 0:
-            print('[Внимание!]Мультиколлинеарности не обнаружено.')
+            print('[Внимание!]Мультиколлинеарности не обнаружено.\n')
         else:
             print(f'[Внимание!]Мультиколлинеарность будет устранена автоматически.')
 
@@ -113,17 +116,18 @@ class Model:
             if coupling_strength['coupling_strength'] in [self.__CouplingStrength.VERY_LOW,
                                                           self.__CouplingStrength.LOW]:
                 print(f'[Внимание!]{coupling_strength['coupling_strength']} связь между фактором {factor} '
-                      f'и зависимой переменной {self.__dep_variable}')
+                      f'и зависимой переменной {self.__dep_variable}\n')
                 factors_dep_var.append(factor)
 
         if len(factors_dep_var) == 0:
-            print(f'[Внимание!]Факторы со слабой связью с зависимой переменной не обнаружены.')
+            print(f'[Внимание!]Факторы со слабой связью с зависимой переменной не обнаружены.\n')
         else:
             print(f'[Внимание!]Факторы со слабой связью с зависимой переменной будут удалены автоматически.')
 
             self.__delete_factors(factors_dep_var)
 
         self.__corr_matrix_values = self.__corr_matrix()
+        self.plot_corr_matrix(f'Матрица корреляции после удаления факторов')
 
     def plot_dep_var_factors(self):
         plt.figure(figsize=(18, 5))
@@ -148,18 +152,29 @@ class Model:
         plt.tight_layout()
         plt.show()
 
-    def plot_corr_matrix(self):
-        pass
+    def plot_corr_matrix(self, title: str = 'Исходная матрица корреляции'):
+        plt.figure(figsize=(12, 10), dpi=80)
+        sns.heatmap(self.__corr_matrix_values, xticklabels=[*self.factors, self.dep_variable],
+                    yticklabels=[*self.factors, self.dep_variable], cmap='RdYlGn', center=0, annot=True)
+
+        plt.title(title)
+        plt.xticks(fontsize=12)
+        plt.yticks(fontsize=12)
+        plt.show(block=False)
 
     def regression_stat(self):
         if self.__regression_line_coeffs is None:
             self.__multi_regression_line()
 
-        print(f'[Множественный R] {self.__r_coeff(self.__predicted_y)}\n'
-              f'[R-квадрат] {self.__r_square(self.__predicted_y)}\n'
-              f'[Нормированный R-квадрат] {self.__adjusted_r(self.__predicted_y)}\n'
-              f'[Стандартная ошибка] {self.__standard_error(self.__predicted_y)}\n'
-              f'[Размер выборки] {self.n_sample}')
+        table = PrettyTable(field_names=[' ', 'Регрессионная статистика'])
+        table.align[' '] = 'l'
+        table.align['Регрессионная статистика'] = 'r'
+        table.add_rows([['Множественный R', self.__r_coeff(self.__predicted_y)],
+                        ['R-квадрат', self.__r_square(self.__predicted_y)],
+                        ['Нормированный R-квадрат', self.__adjusted_r(self.__predicted_y)],
+                        ['Стандартная ошибка', self.__standard_error(self.__predicted_y)],
+                        ['Размер выборки', self.n_sample]])
+        print(table, '\n')
 
     def regression_analysis(self):
         new_data: np.ndarray = np.ones((len(self.__factors) + 1, self.n_sample), dtype=float)
@@ -183,13 +198,19 @@ class Model:
             'left': self.__regression_line_coeffs - margin_errors * standart_factors_errors,
             'right': self.__regression_line_coeffs + margin_errors * standart_factors_errors
         }
-        print(self.__regression_line_coeffs)
-        print(standart_factors_errors)
-        print(t_stats)
-        print(p_values)
-        print(confidence_interval['left'], confidence_interval['right'])
+        table = PrettyTable(field_names=[' ', 'Коэффициенты', 'Стандартная ошибка', 't-статистика', 'p-значение',
+                                         'Нижние 95%', 'Верхние 95%'])
 
-    def regression_equation(self) -> str:
+        table.add_row([self.dep_variable, self.__regression_line_coeffs[-1], standart_factors_errors[-1],
+                       t_stats[-1], p_values[-1], confidence_interval['left'][-1], confidence_interval['right'][-1]])
+
+        for i, factor in enumerate(self.__factors):
+            table.add_row([factor, self.__regression_line_coeffs[i], standart_factors_errors[i],
+                           t_stats[i], p_values[i], confidence_interval['left'][i], confidence_interval['right'][i]])
+
+        print(table, '\n')
+
+    def regression_equation(self):
         to_print: str = f'~y = {self.__regression_line_coeffs[-1]:.4f}'
 
         for i, factor in enumerate(self.__factors):
@@ -199,7 +220,7 @@ class Model:
 
             to_print += f' {sign} {abs(self.__regression_line_coeffs[i]):.4f}*{factor}'
 
-        return to_print
+        print(f'Уравнение множественной регрессии: {to_print}')
 
     def __adjusted_r(self, predicted_y: np.ndarray) -> float:
         return 1 - (self.__standard_error(predicted_y)) / \
@@ -215,6 +236,7 @@ class Model:
                 corr_matrix[i][j] = self.__correlation(new_data[i], new_data[j])
                 corr_matrix[j][i] = corr_matrix[i][j]
 
+        self.__corr_matrix_values = corr_matrix
         return corr_matrix
 
     def __coupling_strength_check(self, corr_coef: float) -> dict:
@@ -239,13 +261,13 @@ class Model:
             self.__data[factor_key] = np.delete(self.__data[factor_key], anomaly_objects)
 
         self.__data[self.__dep_variable] = np.delete(self.dep_variable_values, anomaly_objects)
-        print(f'\t[Внимание!]Аномальные объекты '
-              f'{', '.join([str(anomaly_object + 1) for anomaly_object in anomaly_objects])} удалены.')
+        print(f'\t[Внимание!]Аномальные объекты с номерами '
+              f'{', '.join([str(anomaly_object + 1) for anomaly_object in anomaly_objects])} удалены.\n')
 
     def __delete_factors(self, factors: list[str]):
         for factor in factors:
             self.__data.pop(factor)
-            print(f'\t[Внимание!]Фактор {factor} удален!')
+            print(f'\t[Внимание!]Фактор {factor} удален!\n')
 
         self.__update_factors()
 
