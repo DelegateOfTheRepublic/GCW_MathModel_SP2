@@ -36,6 +36,8 @@ class Model:
         self.__dep_variable = data_keys.pop()
         self.__factors = data_keys
 
+        self.plot_dep_var_factors()
+
     @property
     def data(self):
         return self.__data
@@ -60,6 +62,10 @@ class Model:
     def dep_variable_values(self) -> np.ndarray:
         return self.__data[self.__dep_variable]
 
+    @property
+    def factors_values(self) -> np.ndarray:
+        return np.array(list(self.__data.values())[:-1])
+
     def anomaly_check(self):
         anomaly_objects: list[int] = []
 
@@ -68,6 +74,8 @@ class Model:
             anomaly_object: list = grubbs.max_test_indices(self.__data[factor_key], alpha=.05)
             if anomaly_value:
                 anomaly_objects += anomaly_object
+
+                self.plot_trendline(factor_key, self.__dep_variable)
 
                 print(f'[Внимание!]Выброс в данных фактора {factor_key}\n\t[Номер объекта] {anomaly_object[0]}'
                       f'\n\t[Значение объекта] {anomaly_value[0]}'
@@ -134,13 +142,13 @@ class Model:
 
         for i, factor in enumerate(self.__factors, 1):
             plt.subplot(1, len(self.__factors), i)
-            plt.plot(self.__data[factor], self.dep_variable_values, marker='o', color='blue')
+            plt.scatter(self.__data[factor], self.dep_variable_values, color='blue')
             plt.title(f'Linear Regression for {factor}')
             plt.xlabel(factor)
             plt.ylabel(self.dep_variable)
 
         plt.tight_layout()
-        plt.show()
+        plt.show(block=False)
 
     def plot_trendline(self, factor_x: str, factor_y: str):
         plt.figure(figsize=(8, 8))
@@ -148,9 +156,9 @@ class Model:
         plt.scatter(self.__data[factor_x], self.__data[factor_y])
         plt.xlabel(factor_x)
         plt.ylabel(factor_y)
-        plt.plot(self.__data[factor_x], new_y, color='g', linestyle='--')
+        plt.plot(self.__data[factor_x], new_y, color='g')
         plt.tight_layout()
-        plt.show()
+        plt.show(block=False)
 
     def plot_corr_matrix(self, title: str = 'Исходная матрица корреляции'):
         plt.figure(figsize=(12, 10), dpi=80)
@@ -222,6 +230,13 @@ class Model:
 
         print(f'Уравнение множественной регрессии: {to_print}')
 
+    def table_data(self):
+        errors: np.ndarray = (self.dep_variable_values - self.__predicted_y) / self.dep_variable_values * 100
+
+        self.__table_print([*self.__factors, self.__dep_variable, '~Y', 'Errors (%)'],
+                           [*self.factors_values, self.dep_variable_values, self.__predicted_y,
+                            [f'{abs(error):.1f}%' for error in errors]])
+
     def __adjusted_r(self, predicted_y: np.ndarray) -> float:
         return 1 - (self.__standard_error(predicted_y)) / \
             (np.sum((self.dep_variable_values - self.dep_variable_values.mean()) ** 2) / (self.n_sample - 1))
@@ -288,10 +303,6 @@ class Model:
         self.__predicted_y += regression_line[-1]
         self.__regression_line_coeffs = tuple(regression_line)
 
-    def predicted_y_errors(self):
-        errors: np.ndarray = np.abs(self.dep_variable_values - self.__predicted_y) / self.dep_variable_values * 100
-        print(', '.join([f'{error:.1f}%' for error in errors]))
-
     def __r_coeff(self, predicted_y: np.ndarray) -> float:
         return (np.sum((self.dep_variable_values - self.dep_variable_values.mean()) *
                        (predicted_y - predicted_y.mean())) /
@@ -320,6 +331,14 @@ class Model:
 
     def __standard_deviation(self, x: np.ndarray) -> float:
         return np.sqrt(self.__variance(x))
+
+    def __table_print(self, headers: list | np.ndarray, data: list | np.ndarray):
+        table = PrettyTable(field_names=headers)
+
+        for data_item in zip(*data):
+            table.add_row(data_item)
+
+        print(table, '\n')
 
     def __update_factors(self):
         head: list[str] = list(self.__data.keys())
